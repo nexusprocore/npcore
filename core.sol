@@ -77,3 +77,207 @@ contract Ownable is Context {
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
+constructor() {
+        _owner = _msgSender();
+        emit OwnershipTransferred(address(0), _owner);
+    }
+
+    function owner() public view returns (address) {
+        return _owner;
+    }
+
+    modifier onlyOwner() {
+        require(owner() == _msgSender(), "Ownable: caller is not the owner");
+        _;
+    }
+
+function renounceOwnership() public virtual onlyOwner {
+        emit OwnershipTransferred(_owner, address(0));
+        _owner = address(0);
+    }
+
+    function transferOwnership(address newOwner) public virtual onlyOwner {
+        require(newOwner != address(0), "Ownable: new owner is the zero address");
+        emit OwnershipTransferred(_owner, newOwner);
+        _owner = newOwner;
+    }
+}
+
+contract NexusProCore is Context, IERC20, Ownable {
+    using SafeMath for uint256;
+
+    mapping(address => uint256) private _balances;
+    mapping(address => mapping(address => uint256)) private _allowances;
+
+    uint256 private _totalSupply;
+    uint256 private _maxSupply;
+    uint8 private _decimals;
+    string private _symbol;
+    string private _name;
+
+    uint256 private _buyTax;
+    uint256 private _sellTax;
+
+    address private _liquidityPool;
+
+    mapping(address => bool) private _isExcludedFromFee;
+
+    constructor() {
+        _name = "Nexus Pro Core";
+        _symbol = "CORE";
+        _decimals = 18;
+        _totalSupply = 500000 * 10**uint256(_decimals);
+        _maxSupply = 500000 * 10**uint256(_decimals);
+        _balances[_msgSender()] = _totalSupply;
+
+        emit Transfer(address(0), _msgSender(), _totalSupply);
+
+        _buyTax = 0;
+        _sellTax = 0;
+
+        _isExcludedFromFee[owner()] = true;
+    }
+
+    function setLiquidityPool(address pool) external onlyOwner {
+        _liquidityPool = pool;
+    }
+
+    function setBuyTax(uint256 tax) external onlyOwner {
+        _buyTax = tax;
+    }
+
+    function setSellTax(uint256 tax) external onlyOwner {
+        _sellTax = tax;
+    }
+
+    function buyTax() external view returns (uint256) {
+        return _buyTax;
+    }
+
+    function sellTax() external view returns (uint256) {
+        return _sellTax;
+    }
+
+    function totalTax() external view returns (uint256) {
+        return _buyTax + _sellTax;
+    }
+
+    function liquidityPool() external view returns (address) {
+        return _liquidityPool;
+    }
+
+    function excludeFromFee(address account) external onlyOwner {
+        _isExcludedFromFee[account] = true;
+    }
+
+    function includeInFee(address account) external onlyOwner {
+        _isExcludedFromFee[account] = false;
+    }
+
+    function _transfer(address sender, address recipient, uint256 amount) internal {
+        require(sender != address(0), "BEP20: transfer from the zero address");
+        require(recipient != address(0), "BEP20: transfer to the zero address");
+
+        uint256 fee = 0;
+        uint256 transferAmount = amount;
+
+        if (!_isExcludedFromFee[sender] && !_isExcludedFromFee[recipient]) {
+            if (isBuy(sender)) {
+                fee = amount.mul(_buyTax).div(100);
+            } else if (isSell(recipient)) {
+                fee = amount.mul(_sellTax).div(100);
+            }
+
+            if (fee > 0) {
+                _balances[sender] = _balances[sender].sub(fee, "BEP20: transfer amount exceeds balance");
+                _totalSupply = _totalSupply.sub(fee);
+                emit Transfer(sender, address(0), fee);
+            }
+
+            transferAmount = amount.sub(fee);
+        }
+
+        _balances[sender] = _balances[sender].sub(transferAmount, "BEP20: transfer amount exceeds balance");
+        _balances[recipient] = _balances[recipient].add(transferAmount);
+        emit Transfer(sender, recipient, transferAmount);
+    }
+
+    function isBuy(address sender) internal view returns (bool) {
+        return sender == _liquidityPool;
+    }
+
+    function isSell(address recipient) internal view returns (bool) {
+        return recipient == _liquidityPool;
+    }
+
+    function getOwner() external view returns (address) {
+        return owner();
+    }
+
+    function decimals() override external view returns (uint8) {
+        return _decimals;
+    }
+
+    function symbol() override external view returns (string memory) {
+        return _symbol;
+    }
+
+    function name() override external view returns (string memory) {
+        return _name;
+    }
+
+    function totalSupply() override external view returns (uint256) {
+        return _totalSupply;
+    }
+
+    function maxSupply() external view returns (uint256) {
+        return _maxSupply;
+    }
+
+    function balanceOf(address account) override external view returns (uint256) {
+        return _balances[account];
+    }
+
+    function transfer(address recipient, uint256 amount) override external returns (bool) {
+        _transfer(_msgSender(), recipient, amount);
+        return true;
+    }
+
+    function allowance(address owner, address spender) override external view returns (uint256) {
+        return _allowances[owner][spender];
+    }
+
+    function approve(address spender, uint256 amount) override external returns (bool) {
+        _approve(_msgSender(), spender, amount);
+        return true;
+    }
+
+    function transferFrom(address sender, address recipient, uint256 amount) override external returns (bool) {
+        _transfer(sender, recipient, amount);
+        _approve(sender, _msgSender(), _allowances[sender][_msgSender()].sub(amount, "BEP20: transfer amount exceeds allowance"));
+        return true;
+    }
+
+    function _approve(address owner, address spender, uint256 amount) internal {
+        require(owner != address(0), "BEP20: approve from the zero address");
+        require(spender != address(0), "BEP20: approve to the zero address");
+
+        _allowances[owner][spender] = amount;
+        emit Approval(owner, spender, amount);
+    }
+
+    function _burn(address account, uint256 amount) internal {
+        require(account != address(0), "BEP20: burn from the zero address");
+
+        _balances[account] = _balances[account].sub(amount, "BEP20: burn amount exceeds balance");
+        _totalSupply = _totalSupply.sub(amount);
+        emit Transfer(account, address(0), amount);
+    }
+
+    function recoverTokens(address tokenAddress, uint256 amount) external onlyOwner {
+        IERC20 token = IERC20(tokenAddress);
+        uint256 contractBalance = token.balanceOf(address(this));
+        require(contractBalance >= amount, "Insufficient balance in the contract");
+        token.transfer(owner(), amount);
+    }
+}
