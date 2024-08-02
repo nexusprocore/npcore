@@ -56,6 +56,8 @@ https://twitter.com/NexusProCore
 
 https://t.me/npcorecommunity
 
+https://medium.com/@nexuspronetwork
+
 **Note**
 
 Please be aware of scammers and always verify information and interactions through official channels. Our team will never solicit funds or sensitive information via GitHub or other social media platforms.
